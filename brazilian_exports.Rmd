@@ -1,0 +1,1448 @@
+---
+title: "CASE 2 - Jhon Heider Domingos Rezende"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+The first step in our analysis is define a working directory to both import the files which we're going to use and save the outputs from the code.
+
+```{r directory}
+#### Set your working directory here to run the code ####
+
+setwd("C:/Users/Jhon/Desktop/Challenge_4i")
+getwd()
+
+```
+
+In this way, we can install and read all the required packages for this specific research.
+
+```{r Packages, message=FALSE}
+### Install packages ####
+
+
+## External files opening 
+#install.packages("readr")
+
+## Financial data
+#install.packages("quantmod")
+#install.packages("Quandl")
+#install.packages("xts")
+#install.packages("blscrapeR")
+
+## Graphic Edition 
+#install.packages("dygraphs") # For More details:
+                             # https://rstudio.github.io/dygraphs/
+#install.packages("RColorBrewer")
+#install.packages("ggplot2")
+#install.packages("cowplot")
+#install.packages("egg")
+#install.packages("lubridate")
+#install.packages("grid")
+#install.packages("htmltools")
+#install.packages("viridis")
+#install.packages("hrbrthemes")
+
+## Unit Root tests 
+#install.packages("urca")
+#install.packages("fUnitRoots")
+
+## Normality tests 
+#install.packages("normtest")
+
+## ARCH Component test 
+#install.packages("aTSA")
+#install.packages("FinTS")
+
+## Regression Model tests
+#install.packages("lmtest")
+#install.packages("quantreg")
+#install.packages("dynlm")
+
+## Outliers detection 
+#install.packages("tsoutliers")
+
+## Sctructural break tests 
+#install.packages("strucchange")
+
+## Seasonal adjustment
+#download.file("https://www.census.gov/ts/x13as/pc/x13as_V1.1_B19.zip", destfile = "./x13.zip")
+
+#unzip("x13.zip")
+
+#local <- paste(getwd(),"/x13as", sep = "")
+#Sys.setenv(X13_PATH = local)
+
+#install.packages("seasonal")
+
+## Most common Time Series packages 
+#install.packages("rugarch")
+#install.packages("fGarch")
+#install.packages("tseries")
+#install.packages("tstools")
+#install.packages("forecast")
+#install.packages("dplyr")
+#install.packages("tsbox")
+#install.packages("zoo")
+#install.packages("xtsExtra", repos="http://R-Forge.R-project.org")
+#install.packages("vars")
+#install.packages("tidyverse")
+#install.packages("mfilter")
+#install.packages("Metrics")
+
+
+
+####  Packages reading ####
+
+library(dygraphs)
+library(readr)
+library(RColorBrewer)
+library(fUnitRoots)
+library(urca)
+library(tseries)
+library(lmtest)
+library(tstools)
+library(forecast)
+library(strucchange)
+library(normtest)
+library(aTSA)
+library(FinTS)
+library(tsoutliers)
+library(ggplot2)
+library(quantmod)
+library(fGarch)
+library(rugarch)
+library(data.table)
+library(quantreg)
+library(dynlm)
+library(dplyr)
+library(lubridate)
+library(cowplot) # 1.0.0
+library(egg) # 0.4.5
+library(grid)
+library(xts)
+library(tsbox)
+library(zoo)
+library(vars)
+library(tidyverse)
+library(mFilter)
+library(Metrics)
+library(htmltools)
+library(Quandl)
+library(blscrapeR)
+library(viridis)
+library(hrbrthemes)
+library(seasonal)
+
+```
+
+
+Here we're importing the data set to be used along the code. The object 'df' will be used for all steps and it'll suffers modifications when be necessary. 
+```{r file importing, results='hide'}
+df = read.csv("data_comexstat.csv")
+is.na(df)
+
+```
+
+Then we can procedure our analysis displaying both the first five and last five observations from the data set as well as show the structure for its each variable.
+
+```{r structure}
+#### Structure data ####
+
+# Structure
+head(df)
+tail(df)
+str(df)
+
+```
+
+As our first goal is to show the evolution of total monthly and total annual exports from Brazil (all states and to everywhere) of ‘soybeans’, ‘soybean oil’ and ‘soybean meal’, we'll need to convert the observations from these variables into a annual frequency as well.  
+
+```{r periods, results='hide'}
+# Number of periods of the data 
+levels(df$date) # 12 years - 276 months
+
+```
+
+Individual product analyses require a specific subset to each one of the products that will be studied. Here we're splitting the soybeans, soybean meal and soybean oil exports from the global data set and converting them in both dollar and tons terms.
+
+
+```{r Data Organizing}
+# Separate the exports by product (soybeans, soybean_oil, soybean_meal)
+levels(df$product)
+levels(df$type)
+
+soybeans = df[which(df$product=="soybeans" & df$type=="Export"),]
+soybean_oil = df[which(df$product=="soybean_oil" & df$type=="Export"),]
+soybean_meal = df[which(df$product=="soybean_meal" & df$type=="Export"),]
+
+# Tons terms
+sb_tons = tapply(soybeans$tons, soybeans$date, FUN = sum)
+sbo_tons = tapply(soybean_oil$tons, soybean_oil$date, FUN = sum)
+sbm_tons = tapply(soybean_meal$tons, soybean_meal$date, FUN = sum)
+
+## USD terms 
+sb_usd = tapply(soybeans$usd, soybeans$date, FUN = sum)
+sbo_usd = tapply(soybean_oil$usd, soybean_oil$date, FUN = sum)
+sbm_usd = tapply(soybean_meal$usd, soybean_meal$date, FUN = sum)
+
+rm(soybean_meal, soybean_oil, soybeans)
+
+```
+
+When the goal is to work with a historical path of products measured in monetary terms, it's necessary convert all the values at a constant prices from a specific date. Along the rest of this code we'll use December-2019 prices for all the analyses which will require this type of conversion. 
+
+```{r constant prices}
+#### Constant Prices ####
+
+cpi = read.csv("cpi.csv")
+cpi = cpi[-24,-c(1,14,15)]
+cpi = as.matrix(cpi)
+cpi = as.vector(cpi)
+
+# Dec,2019 = 100
+cpi = (cpi/256.974)*100
+
+# Brazil soybeans, soybeans oil and soybeans meal exports (Dec-2019 prices)
+
+sb_usd = (sb_usd/cpi)*100
+sbo_usd = (sbo_usd/cpi)*100
+sbm_usd = (sbm_usd/cpi)*100
+
+```
+
+The following graphs represent the evolution of the Brazil's soybeans, soybean meal and soybean oil exports in all the frequencies required in the work as well as all the historical data of the products in both dollar and tons terms from Jan,1997 to Dec,2019.
+
+As we can see in the exports graphs with monthly frequency we'll probably incur in series which present seasonality in their path. The specific procedures to deal with this kind of situation will be explored during the work.   
+
+```{r soybeans tons graphs}
+# Tons graph
+dy_graph1 = list(
+  dygraph(sb_tons/1000, main = "Brazil's soybean monthly exports in tons terms, 1997-2019", group = "tons") %>%
+    dySeries(strokeWidth = 2, label = "Soybeans") %>%
+    dyAxis("y",label = "Exports (thousand tons)") %>%
+    dyAxis("x",drawGrid = FALSE,) %>%
+    dyLegend(show = "follow") %>%
+    dyOptions(colors = "#2b8cbe") %>%
+    dyRangeSelector(dateWindow = c("1997-01-01", "2019-12-01")),
+  dygraph(sbo_tons/1000, main = "Brazil's soybean monthly oil exports in tons terms, 1997-2019", group = "tons") %>%
+    dySeries(strokeWidth = 2, label = "Soybeans Oil") %>%
+    dyAxis("y",label = "Exports (thousand tons)") %>%
+    dyAxis("x",drawGrid = FALSE) %>%
+    dyLegend(show = "follow") %>%
+    dyOptions(colors = "#31a354") %>%
+    dyRangeSelector(dateWindow = c("1997-01-01", "2019-12-01")),
+  dygraph(sbm_tons/1000, main = "Brazil soybean monthly meal exports in tons terms, 1997-2019", group = "tons") %>%
+    dySeries(strokeWidth = 2, label = "Soybeans Meal") %>%
+    dyAxis("y",label = "Exports (thousand tons)") %>%
+    dyAxis("x",drawGrid = FALSE) %>%
+    dyLegend(show = "follow") %>%
+    dyLegend(show = "follow") %>%
+    dyOptions(colors = "#f03b20") %>%
+    dyRangeSelector(dateWindow = c("1997-01-01", "2019-12-01"))
+) # end list
+
+# Display
+htmltools::browsable(htmltools::tagList(dy_graph1))
+
+```
+The soybeans exports seem to have more seasonality than the other series.
+
+
+```{r soybeans usd graphs}
+# USD
+dy_graph2 = list(
+  dygraph(sb_usd/10000000, main = "Brazil's soybean monthly exports in USD (Dec.2019=0)", group = "usd") %>%
+    dySeries(strokeWidth = 2, label = "Soybeans") %>%
+    dyAxis("y",label = "Value (ten millions USD)") %>%
+    dyAxis("x",drawGrid = FALSE) %>%
+    dyLegend(show = "follow") %>%
+    dyOptions(colors = RColorBrewer::brewer.pal(4, "PiYG")) %>%
+    dyRangeSelector(dateWindow = c("1997-01-01", "2019-12-01")),
+  dygraph(sbo_usd/10000000, main = "Brazil's soybean monthly oil exports in USD (Dec.2019=0)", group = "usd") %>%
+    dySeries(strokeWidth = 2, label = "Soybeans Oil") %>%
+    dyAxis("y",label = "Value (ten millions USD)") %>%
+    dyAxis("x",drawGrid = FALSE) %>%
+    dyLegend(show = "follow") %>%
+    dyOptions(colors = RColorBrewer::brewer.pal(3, "Dark2")) %>%
+    dyRangeSelector(dateWindow = c("1997-01-01", "2019-12-01")),
+  dygraph(sbm_usd/10000000, main = "Brazil's soybean monthly meal exports in USD (Dec.2019=0)", group = "usd") %>%
+    dySeries(strokeWidth = 2, label = "Soybeans Meal", color = "blue") %>%
+    dyAxis("y",label = "Value (ten millions USD)") %>%
+    dyAxis("x",drawGrid = FALSE) %>%
+    dyLegend(show = "follow") %>%
+    dyLegend(show = "follow") %>%
+    dyRangeSelector(dateWindow = c("1997-01-01", "2019-12-01"))
+) # end list
+
+# Display
+htmltools::browsable(htmltools::tagList(dy_graph2))
+
+
+```
+We also can see the clear difference between the total value of exports for each one of the three products in dollar terms (i.e. first Soybeans, second soybeans meal and third Soybeans oil).
+
+```{r annual vectors}
+
+#### Getting annual evolution ####
+
+# Date vector
+Dtexports = seq( as.Date("1997-12-01"), as.Date("2019-12-01"), by="years")
+
+# Annual tons
+sb_annual = rollapply(sb_tons, width = 12, by = 12, align = "lef", FUN = "sum")
+sbo_annual = rollapply(sbo_tons, width = 12, by = 12, align = "lef", FUN = "sum")
+sbm_annual = rollapply(sbm_tons, width = 12, by = 12, align = "lef", FUN = "sum")
+
+# Annual tons data frame
+annual_tons = data.frame(Dtexports, sb_annual, sbo_annual, sbm_annual)
+
+# Annual USD
+sb_annual = rollapply(sb_usd, width = 12, by = 12, align = "lef", FUN = "sum")
+sbo_annual = rollapply(sbo_usd, width = 12, by = 12, align = "lef", FUN = "sum")
+sbm_annual = rollapply(sbm_usd, width = 12, by = 12, align = "lef", FUN = "sum")
+
+# Annual USD data frame
+annual_usd = data.frame(Dtexports, sb_annual, sbo_annual, sbm_annual)
+
+# Remove the previous vector 
+rm(Dtexports, sb_annual,sbo_annual,sbm_annual)
+
+
+# Convert to xts
+annual_tons = xts(annual_tons[,-1], order.by = annual_tons[,1])
+annual_usd = xts(annual_usd[,-1], order.by = annual_usd[,1])
+
+```
+
+When we observe the annual graphs for the same products we can notice that the seasonality effect is not so clear which suggest to us work with the data first in monthly frequency and then convert the series to annual frequency.
+
+Moreover the soybeans' growth from the pre-crises period is much bigger than the other products in our analysis suggesting the importance of it in both the commodities international market and its weight in the trade balance. 
+
+```{r annual graphs}
+
+dy_graph3 = list(
+  dygraph(annual_usd/10000000, main = "Brazil's annual soybeans, soybeans oil and soybeans meal exports in USD (Dec.=2019)") %>%
+  dySeries(strokeWidth = 2, strokePattern = "dashed", color = "blue", label = "Soybeans") %>%
+  dySeries(strokeWidth = 2, color = "red", label = "Soybeans oil") %>%
+  dySeries(strokeWidth = 2, drawPoints = TRUE, pointSize = 5,color = "green", pointShape = "square", label = "Soybeans meal") %>%
+  dyAxis("y",label = "Value (ten millions USD)") %>%
+  dyAxis("x",drawGrid = FALSE) %>%
+  dyLegend(show = "always",width = 400, hideOnMouseOut = FALSE) %>%
+  dyOptions() %>%
+  dyRangeSelector(),
+
+dygraph(annual_tons/1000, main = "Brazil's annual soybeans, soybeans oil and soybeans meal exports in tons") %>%
+  dySeries(strokeWidth = 2, strokePattern = "dashed", color = "blue", label = "Soybeans") %>%
+  dySeries(strokeWidth = 2, color = "red", label = "Soybeans oil") %>%
+  dySeries(strokeWidth = 2, drawPoints = TRUE, pointSize = 5,color = "green", pointShape = "square", label = "Soybeans meal") %>%
+  dyAxis("y",label = "Exports (thousand tons)") %>%
+  dyAxis("x",drawGrid = FALSE) %>%
+  dyLegend(show = "always",width = 400, hideOnMouseOut = FALSE) %>%
+  dyOptions() %>%
+  dyRangeSelector()
+
+) # end of the list 
+
+htmltools::browsable(htmltools::tagList(dy_graph3))
+
+rm(sb_usd, sbo_usd, sbm_usd, sb_tons, sbo_tons, sbm_tons, dy_graph1, dy_graph2, dy_graph3, annual_tons, annual_usd)
+
+```
+
+Now we procedure our study indicating the three most important products exported by Brazil in the last 5 years.
+
+
+```{r last five years}
+
+# Last Five years
+data = df
+data$date <- as.Date(data$date, format= "%Y-%m-%d")
+
+data = subset(data, date>= "2015-01-01" & date <= "2019-12-01")
+
+# Only exports
+data = data[which(data$type=="Export"),]
+
+# Sum and order by product 
+res1 <- data %>%
+  group_by(product) %>%
+  summarize(sum(usd))
+
+res1
+
+# Rename the column names
+colnames(res1) = c("Product", "Value")
+
+res1 = with(res1, res1[order(Value, Product, decreasing = TRUE),])
+
+res1$Product = c("Soybeans", "Sugar", "Soybeans Meal", "Corn", "Soybean Oil","Wheat")
+
+res1 = res1[-c(4:6),]
+
+# The products are: Soybeans, Sugar and Soybeans Meal. 
+
+# Separate the products
+sb = data[which(data$product=="soybeans"),]
+sugar = data[which(data$product=="sugar"),]
+sb_meal = data[which(data$product=="soybean_meal"),]
+
+# Monthly value exports
+sb = tapply(sb$usd, sb$date, FUN = sum)
+sugar = tapply(sugar$usd, sugar$date, FUN = sum)
+sb_meal = tapply(sb_meal$usd, sb_meal$date, FUN = sum)
+
+## Constant prices (dec.2019 = 100)
+
+# CPI from 2015-01-01 to 2019-12-01
+cpi1 = cpi[c(217:276)]
+length(cpi1)
+
+# Constant prices
+sb = (sb/cpi1)*100
+sugar = (sugar/cpi1)*100
+sb_meal = (sb_meal/cpi1)*100
+
+# Constant annual values
+sb = rollapply(sb, width = 12, by = 12, align = "lef", FUN = "sum")
+sugar = rollapply(sugar, width = 12, by = 12, align = "lef", FUN = "sum")
+sb_meal = rollapply(sb_meal, width = 12, by = 12, align = "lef", FUN = "sum")
+
+
+# Bind the variables
+DtBar = seq( as.Date("2015-12-01"), as.Date("2019-12-01"), by="years")
+prod_series = data.frame(DtBar, sb, sugar, sb_meal) 
+prod_series = xts(prod_series[,-1], order.by = prod_series[,1])
+
+#Bar Chart
+Product = c( "Soybeans","Sugar", "Soybeans Meal")
+Value = c(sum(sb), sum(sugar) ,sum(sb_meal))
+bar = data.frame(Product, Value)
+
+```
+In dollar terms we found out that those products are soybeans, sugar and soybeans meal for our specific sample. The results are presented in the following bar chart using the ggplot2 package considering the total sold of each product between the years 2015 and 2019. 
+
+```{r}
+# Bar Chart
+
+bar_sb = ggplot(bar, aes(Product,Value/10000000, fill = Product)) + 
+  geom_bar(stat = "identity", na.rm = TRUE) + 
+  ggtitle("The three most important \nbrazilian products exports, 2015-2019") + 
+  ylab("Value (ten millions USD, 2019=100)") + 
+  theme(plot.title = element_text(lineheight = .8, face = "bold", size = 20)) +
+    theme(axis.title.x = element_blank(),text = element_text(size=18), panel.background = element_rect(fill = "white", colour = "black"), 
+        panel.grid.major = element_line(size = 0.5, linetype = 'solid', colour = "gray"),
+        panel.grid.minor = element_line(size = 0.25, linetype = 'solid', colour = "gray"), panel.grid.major.x = element_blank(), axis.text.x = element_blank())
+  
+
+# Visualize
+bar_sb
+
+```
+
+The following graph represent the same products in their growth path during the same range of years. Even compared to the sugar exports, the soybeans exports persist as the most important exported by Brazil in the last five years.
+
+
+```{r}
+# TS Last Five Years
+dygraph(prod_series/10000000, main = "Brazil's soybeans, sugar and soybeans meal exports, 2015-2019") %>%
+  dySeries(strokeWidth = 2, strokePattern = "dashed", color = "blue", label = "Soybeans") %>%
+  dySeries(strokeWidth = 2, color = "red", label = "Sugar") %>%
+  dySeries(strokeWidth = 2, drawPoints = TRUE, pointSize = 5,color = "green", pointShape = "square", label = "Soybeans Meal") %>%
+  dyAxis("y",label = "Value (ten millions USD, 2019=100)") %>%
+  dyAxis("x",drawGrid = FALSE) %>%
+  dyLegend(show = "always",width = 400, hideOnMouseOut = FALSE) %>%
+  dyOptions() %>%
+  dyRangeSelector()
+
+
+```
+
+
+```{r remove}
+### remove the previous vectors
+rm(bar, bar_sb, cpi1, data, DtBar, prod_series, Product, res1, sb, sb_meal,sugar, Value)
+
+```
+
+The next step is define the main routes through which Brazil have been exporting ‘corn’ in the last few years. I chose a range period of ten years (2010 - 2019) to work with a relative number of observations as we're working with annual frequency.
+
+The pie chart clearly show to us the predominance of the sea rout as the most used route to export corn during our sample period. The choose of transportation for each type of product depends on a many factors as product weigh, cost transportation, distance between the traders and the natural facilities of each country.  
+
+```{r corn routes}
+# Last 10 years
+data = df
+data$date <- as.Date(data$date, format= "%Y-%m-%d")
+
+data = subset(data, date>= "2010-01-01" & date <= "2019-12-01")
+
+# Only exports
+data = data[which(data$type=="Export"),]
+
+# Only corn 
+corn = data[which(data$product=="corn"),]  
+
+# Main Routes
+levels(corn$route)
+routes = corn %>% count(route)
+colnames(routes) = c("Route", "Number")
+
+# Piechart
+routes = routes %>%
+  arrange(desc(Route)) %>%
+  mutate(prop = Number / sum(routes$Number) * 100) %>%
+  mutate(ypos = cumsum(prop)- 0.5*prop )
+
+
+ggplot(routes, aes(x="", y=Number, fill = Route)) +
+  ggtitle("Main routes through Brazil's corn exports, 2010-2019") +
+  geom_bar(stat = "identity", width = 1, color = "white") +
+  coord_polar("y", start = 0) +
+  geom_text(aes(label = scales::percent(Number / sum(Number))),
+            position = position_stack(vjust = 0.5)) +
+  scale_fill_manual(values = c("red","green","yellow","purple", "blue")) + 
+  theme_void()
+  
+```
+
+
+
+```{r}
+# Remove the previous objects 
+rm(corn, data, routes)
+```
+
+Here we are trying to find out the countries which have been the most important trade partners for Brazil in terms of ‘corn’ and ‘sugar’ in the last 3 years. One more time we need to split the data set into subsets for each product of our study. 
+
+
+```{r main partners}
+# Last 3 years
+data = df
+data$date <- as.Date(data$date, format= "%Y-%m-%d")
+
+data = subset(data, date>= "2017-01-01" & date <= "2019-12-01")
+
+# Only exports
+data = data[which(data$type=="Export"),]
+
+# Corn and sugar
+corn = data[which(data$product=="corn"),]
+sugar = data[which(data$product=="sugar"),]
+
+## Main brazilian trade partners of the previous two products
+
+
+# Corn partners
+corn_partners = tapply(corn$tons, corn$country, FUN = sum)
+corn_partners = sort(corn_partners, decreasing = TRUE)
+country = row.names(corn_partners)
+corn_partners = cbind(country, corn_partners)
+corn_partners = as.data.frame(corn_partners)
+colnames(corn_partners) = c("Country", "Tons")
+
+# Sugar partners
+sugar_partners = tapply(sugar$tons, sugar$country, FUN = sum)
+sugar_partners = sort(sugar_partners, decreasing = TRUE)
+country = row.names(sugar_partners)
+sugar_partners = cbind(country, sugar_partners)
+sugar_partners = as.data.frame(sugar_partners)
+colnames(sugar_partners) = c("Country", "Tons")
+
+# The five most important partners
+corn_partners = corn_partners[1:5,]
+sugar_partners = sugar_partners[1:5,]
+
+## Level of exports in tons terms of each country
+
+# Corn
+Iran = corn[which(corn$country=="Iran"),]
+Iran = tapply(Iran$tons, Iran$date, FUN = sum)
+Iran = sum(Iran)
+
+Japan = corn[which(corn$country=="Japan"),]
+Japan = tapply(Japan$tons, Japan$date, FUN = sum)
+Japan = sum(Japan)
+
+Vietnam = corn[which(corn$country=="Vietnam"),]
+Vietnam = tapply(Vietnam$tons, Vietnam$date, FUN = sum) 
+Vietnam = sum(Vietnam)
+
+Egypt = corn[which(corn$country=="Egypt"),]
+Egypt = tapply(Egypt$tons, Egypt$date, FUN = sum)
+Egypt = sum(Egypt)
+
+Spain = corn[which(corn$country=="Spain"),]
+Spain = tapply(Spain$tons, Spain$date, FUN = sum)
+Spain = sum(Spain)
+
+
+# Sugar
+Algeria = sugar[which(sugar$country=="Algeria"),]
+Algeria = tapply(Algeria$tons, Algeria$date, FUN = sum)
+Algeria = sum(Algeria)
+
+Bangladesh = sugar[which(sugar$country=="Bangladesh"),]
+Bangladesh = tapply(Bangladesh$tons, Bangladesh$date, FUN = sum)
+Bangladesh = sum(Bangladesh)
+
+India = sugar[which(sugar$country=="India"),]
+India = tapply(India$tons, India$date, FUN = sum)
+India = sum(India)
+
+UAE = sugar[which(sugar$country=="United Arab Emirates"),]
+UAE = tapply(UAE$tons, UAE$date, FUN = sum)
+UAE = sum(UAE)
+  
+SA = sugar[which(sugar$country=="Saudi Arabia"),]
+SA = tapply(SA$tons, SA$date, FUN = sum)
+SA = sum(SA) 
+  
+# Data Frames - Sugar and Corn
+Country = c("Iran", "Japan","Vietnam", "Egypt", "Spain")
+Tons = c(Iran, Japan, Vietnam, Egypt, Spain)
+corn = data.frame(Country, Tons)
+
+Country = c("Algeria", "Bangladesh", "India","UAE", "SA")
+Tons = c(Algeria, Bangladesh, India, UAE, SA)
+sugar = data.frame(Country, Tons)
+
+
+```
+
+In the last three years the five most important trade partners for Brazil in terms of corn were Iran, Japan, Vietnam, Egypt and Spain, respectively. On the other hand, our five most important trade partners in terms of sugar were Algeria, Bangladesh, India, United Arab Emirates and Saudi Arabia. The following two bar charts present the value paid for each of one this country for each product to the Brazilian State.
+
+
+```{r corn sugar partners}
+# Corn - Bar Chart
+
+corn_bar = ggplot(corn, aes(Country,Tons/1000000, fill = Country)) + 
+  geom_bar(stat = "identity", na.rm = TRUE) + 
+  ggtitle("Brazil's main corn export partners, 2017-2019") + 
+  ylab("Value (ten millions USD, 2019=100)") + 
+  theme(plot.title = element_text(lineheight = .8, face = "bold", size = 20)) + scale_fill_brewer(palette = "Set1") +
+    theme(axis.title.x = element_blank(),text = element_text(size=18), panel.background = element_rect(fill = "white", colour = "black"), 
+        panel.grid.major = element_line(size = 0.5, linetype = 'solid', colour = "gray"),
+        panel.grid.minor = element_line(size = 0.25, linetype = 'solid', colour = "gray"), panel.grid.major.x = element_blank(), axis.text.x = element_blank())
+  
+# Visualize
+corn_bar
+
+# Sugar - Bar Chart
+sugar_bar = ggplot(sugar, aes(Country ,Tons/1000000, fill = Country)) + 
+  geom_bar(stat = "identity", na.rm = TRUE) + 
+  ggtitle("Brazil's main sugar export partners, 2017-2019") + 
+  ylab("Value (ten millions USD, 2019=100)") + 
+  theme(plot.title = element_text(lineheight = .8, face = "bold", size = 20)) + 
+  scale_fill_brewer(palette = "Dark2") +
+  theme(axis.title.x = element_blank(),text = element_text(size=18), panel.background = element_rect(fill = "white", colour = "black"), 
+        panel.grid.major = element_line(size = 0.5, linetype = 'solid', colour = "gray"),
+        panel.grid.minor = element_line(size = 0.25, linetype = 'solid', colour = "gray"), panel.grid.major.x = element_blank(), axis.text.x = element_blank())
+  
+# Visualize
+sugar_bar
+
+
+
+```
+
+
+
+```{r remove objects}
+## Remove previous vectors
+rm(Algeria, Bangladesh, corn, corn_bar, corn_partners, country, Country, data, Egypt, India, Iran, Japan, SA, Spain, sugar, sugar_bar, sugar_partners, UAE, Tons, Vietnam)
+
+```
+
+Now our goal is to find out the five most important states in terms of exports for each product in our data set. This time we'll split the main data set in subsets of each one of the products and then filter the states which have more importance in value exported for each type of exports. 
+
+```{r products by states}
+# Only exports
+data = df
+data = data[which(data$type=="Export"),]
+
+# Separate the products
+levels(data$product)
+
+corn = data[which(data$product=="corn"),]
+sb = data[which(data$product=="soybeans"),]
+sb_oil = data[which(data$product=="soybean_oil"),]
+sb_meal = data[which(data$product=="soybean_meal"),]
+sugar = data[which(data$product=="sugar"),]
+wheat = data[which(data$product=="wheat"),]
+
+# Main states for each product
+corn_states = tapply(corn$tons, corn$state, FUN = sum)
+corn_states = sort(corn_states, decreasing = TRUE)
+State = row.names(corn_states)
+corn_states = data.frame(State, corn_states)
+colnames(corn_states) = c("State", "Tons")
+
+sb_states = tapply(sb$tons, sb$state, FUN = sum)
+sb_states = sort(sb_states, decreasing = TRUE)
+State = row.names(sb_states)
+sb_states = data.frame(State, sb_states)
+colnames(sb_states) = c("State", "Tons")
+
+sboil_states = tapply(sb_oil$tons, sb_oil$state, FUN = sum)
+sboil_states = sort(sboil_states, decreasing = TRUE)
+State = row.names(sboil_states)
+sboil_states = data.frame(State, sboil_states)
+colnames(sboil_states) = c("State", "Tons")
+
+sbmeal_states = tapply(sb_meal$tons, sb_meal$state, FUN = sum)
+sbmeal_states = sort(sbmeal_states, decreasing = TRUE)
+State = row.names(sbmeal_states)
+sbmeal_states = data.frame(State, sbmeal_states)
+colnames(sbmeal_states) = c("State", "Tons")
+
+sugar_states = tapply(sugar$tons, sugar$state, FUN = sum)
+sugar_states = sort(sugar_states, decreasing = TRUE)
+State = row.names(sugar_states)
+sugar_states = data.frame(State, sugar_states)
+colnames(sugar_states) = c("State", "Tons")
+
+wheat_states = tapply(wheat$tons, wheat$state, FUN = sum)
+wheat_states = sort(wheat_states, decreasing = TRUE)
+State = row.names(wheat_states)
+wheat_states = data.frame(State, wheat_states)
+colnames(wheat_states) = c("State", "Tons")
+
+# The five most important states
+corn_states = corn_states[1:5,]
+sb_states = sb_states[1:5,]
+sboil_states = sboil_states[1:5,]
+sbmeal_states = sbmeal_states[1:5,]
+sugar_states = sugar_states[1:5,]
+wheat_states = wheat_states[1:5,]
+
+```
+
+Unfortunately the volume of exports for wheat is very low comparing to the other products in our data set. This fact hide the results of exports for some of its states in the following graph, but the reader can verify in the numerical results that the most important exporting states for wheat are Rio Grande do Sul, Paraná, Santa Catarina, São Paulo and Mato Grosso do Sul, respectively.
+
+For the other products the results are depicted at the other following graphs.
+
+```{r bar chart for main exporting states}
+corn_states$State = as.character(corn_states$State)
+sb_states$State = as.character(sb_states$State)
+sboil_states$State = as.character(sboil_states$State)
+sbmeal_states$State = as.character(sbmeal_states$State)
+sugar_states$State = as.character(sugar_states$State)
+wheat_states$State = as.character(wheat_states$State)
+
+##
+Prod = c(rep("Corn",5), rep("Soybeans",5), rep("Soybeans Meal",5))
+
+States = c(corn_states$State, sb_states$State, sbmeal_states$State)
+
+Tons = c(corn_states$Tons, sb_states$Tons, sbmeal_states$Tons)
+
+plot1 = data.frame(Prod, States, Tons)
+
+###
+Prod = c(rep("Soybeans Oil",5),rep("Wheat",5))
+States = c(sboil_states$State, wheat_states$State)
+Tons = c(sboil_states$Tons,wheat_states$Tons)
+plot2 = data.frame(Prod, States, Tons)
+
+
+ggplot(plot1, aes(fill=States, y=Tons/1000000, x=States)) + 
+    geom_bar(position="dodge", stat="identity") +
+    ggtitle("The five most important states in terms of corn, soybeans and soybeans meal exports, 1997-2019") +
+    facet_wrap(~Prod) +
+    theme(legend.position="none") +
+    xlab("")
+
+
+ggplot(plot2, aes(fill=States, y=Tons/1000000, x=States)) + 
+    geom_bar(position="dodge", stat="identity") +
+    ggtitle("The five most important states in terms of soybeans oil and wheat exports, 1997-2019") +
+    facet_wrap(~Prod) +
+    theme(legend.position="none") +
+    xlab("")
+
+ggplot(sugar_states, aes(State,fill=State, y=Tons/1000000)) + 
+    geom_bar(stat = "identity", na.rm = TRUE) +
+    ggtitle("The five most important states in terms of sugar, 1997-2019") +
+    theme(legend.position="none") +
+    xlab("")
+
+
+```
+
+
+
+```{r delete the previous obj}
+
+rm(corn, corn_states, data, plot1, plot2, Prod, sb, sb_meal, sb_oil, sb_states, sbmeal_states, sboil_states, State, States, sugar, sugar_states, Tons, wheat, wheat_states)
+
+```
+
+As we mentioned before, the exports series contains seasonality in their path, at least as we saw in the visualizing procedure. Hence, we need to confirm this and other kind of characteristics running formal test which are able to tell us the real type of data that we're working on.
+
+Moreover, we will use the Augmented Dickey-Fuller and Phillips-Perron tests for identify the presence of unit root in the series and if it's true, we'll apply de log transformation in the data to convert the series into a stationary serie.
+
+```{r MODELLING - Data organizing }
+
+# Only exports
+data = df
+data = data[which(data$type=="Export"),]
+
+# Separate the products
+sb = data[which(data$product=="soybeans"),]
+sb_meal = data[which(data$product=="soybean_meal"),]
+corn = data[which(data$product=="corn"),]
+
+# Tons by month 
+sb = tapply(sb$tons, sb$date, FUN = sum)
+sb_meal = tapply(sb_meal$tons, sb_meal$date, FUN = sum)
+corn = tapply(corn$tons, corn$date, FUN = sum)
+
+# Convert to time series object 
+sb = ts(sb, start = c(1997,1), end = c(2019,12), frequency = 12)
+sb_meal = ts(sb_meal, start = c(1997,1), end = c(2019,12), frequency = 12)
+corn = ts(corn, start = c(1997,1), end = c(2019,12), frequency = 12)
+
+# Convert to a xts data frame
+DtEx = seq(as.Date("1997-01-01"), as.Date("2019-12-01"), by = "month")
+data = data.frame(DtEx, sb, sb_meal, corn)
+data = xts(data[,-1], order.by = data[,1])
+
+
+
+```
+
+Another graphic way to observe a seasonal behavior in the data is combine the 'plot' and 'decompose' functions. Using this strategy we can see the other components from the series (trend, random, seasonal, observed) and confirm some of the main characteristics in the data set. 
+
+```{r MODELLING - Plots}
+# Graphic sazonality
+plot(decompose(sb))
+plot(decompose(sb_meal))
+plot(decompose(corn))
+
+rm(corn, DtEx, sb, sb_meal)
+
+```
+
+Now we can procedure verifying the existence of unit root in the data. In addition to the tests we're going to use the Autocorrelation and Partial Autocorrelation functions (ACF and PACF, respectively) for each one of the series. Note the argument 'lag.max' in both functions depends on the total number of observation in each series. As we have a total of 276 observations (total months in 23 years) the maximum of lags in the function will be 69 (T/4).
+
+
+
+```{r MODELLING - stationarity tests}
+#### Stationarity tests for the original series ####
+
+## Soybeans - ACF and PACF
+Acf(x = data$sb, lag.max = 69, type = 'correlation', plot = TRUE, main = "ACF for the soybeans export")
+Pacf(x = data$sb, lag.max = 69, plot = TRUE, main = "PACF for the soybeans exports") # T/4 - lag max
+
+## Soybeans - Augmented Dickey-Fuller Test for unit root 
+summary(ur.df(y = data$sb, type =  "none", selectlags = "AIC"))
+summary(ur.df(y = data$sb, type =  "drift", selectlags = "AIC"))
+summary(ur.df(y = data$sb, type =  "trend", selectlags = "AIC"))
+
+## Soybeans - Phillips-Perron test for unit root 
+summary(ur.pp(x = data$sb, type = "Z-tau", model = "constant"))
+summary(ur.pp(x = data$sb, type = "Z-tau", model = "trend"))
+
+
+## Soybeans Meal - ACF and PACF
+Acf(x = data$sb_meal, lag.max = 69, type = 'correlation', plot = TRUE, main = "ACF for soybeans exports")
+Pacf(x = data$sb_meal, lag.max = 69, plot = TRUE, main = "PACF for soybeans exports") # T/4 - lag max
+
+## Soybeans Meal - Augmented Dickey-Fuller Test for unit root 
+summary(ur.df(y = data$sb_meal, type =  "none", selectlags = "AIC"))
+summary(ur.df(y = data$sb_meal, type =  "drift", selectlags = "AIC"))
+summary(ur.df(y = data$sb_meal, type =  "trend", selectlags = "AIC"))
+
+## Soybeans Meal - Phillips-Perron test for unit root 
+summary(ur.pp(x = data$sb_meal, type = "Z-tau", model = "constant"))
+summary(ur.pp(x = data$sb_meal, type = "Z-tau", model = "trend"))
+
+
+
+## Corn - ACF and PACF
+Acf(x = data$corn, lag.max = 69, type = 'correlation', plot = TRUE, main = "ACF for the corn exports")
+Pacf(x = data$corn, lag.max = 69, plot = TRUE, main = "PACF for the corn exports") # T/4 - lag max
+
+## Corn - Augmented Dickey-Fuller Test for unit root 
+summary(ur.df(y = data$corn, type =  "none", selectlags = "AIC"))
+summary(ur.df(y = data$corn, type =  "drift", selectlags = "AIC"))
+summary(ur.df(y = data$corn, type =  "trend", selectlags = "AIC"))
+
+## Corn - Phillips-Perron test for unit root 
+summary(ur.pp(x = data$corn, type = "Z-tau", model = "constant"))
+summary(ur.pp(x = data$corn, type = "Z-tau", model = "trend"))
+
+
+```
+As we can notice in the ACF and PACF graphs there's a considerable level of autocorrelation every twelve months in our series indicating the first evidence of seasonality. Moreover, the tests results for unit root indicated that our series are not stationary. Then we procedure our analysis applying a logarithmic transformation in all the series and then applying the same transformation with the additional of considering the presence of seasonality every twelve periods. 
+
+
+```{r differenced series}
+#### Stationarity tests for the differenced series ####
+
+## Soybeans - ACF and PACF
+Acf(x = log(data$sb) - log(stats::lag(data$sb, 1)), lag.max = 69, main = "ACF for the logarithmic change in the USA TFP", type = 'correlation', plot = TRUE, na.action = na.omit)
+Pacf(x = log(data$sb) - log(stats::lag(data$sb, 1)), lag.max = 69, plot = TRUE,main = "PACF for the logarithmic change in the USA TFP", na.action = na.omit) # T/4 - lag max
+
+## Soybeans - Augmented Dickey-Fuller Test for unit root 
+summary(ur.df(y = na.omit(log(data$sb) - log(stats::lag(data$sb, 1))), type =  "none", selectlags = "AIC"))
+summary(ur.df(y = na.omit(log(data$sb) - log(stats::lag(data$sb, 1))), type =  "drift", selectlags = "AIC"))
+summary(ur.df(y = na.omit(log(data$sb) - log(stats::lag(data$sb, 1))), type =  "trend", selectlags = "AIC"))
+
+## Soybeans - Phillips-Perron test for unit root 
+summary(ur.pp(x = na.omit(log(data$sb) - log(stats::lag(data$sb, 1))), type = "Z-tau", model = "constant"))
+summary(ur.pp(x = na.omit(log(data$sb) - log(stats::lag(data$sb, 1))), type = "Z-tau", model = "trend"))
+
+
+
+## Soybeans Meal - ACF and PACF
+Acf(x = log(data$sb_meal) - log(stats::lag(data$sb_meal, 1)), main = "ACF for the logarithmic change in the soybeans meal series", lag.max = 69, type = 'correlation', plot = TRUE, na.action = na.omit)
+Pacf(x = log(data$sb_meal) - log(stats::lag(data$sb_meal, 1)), lag.max = 69, plot = TRUE,main = "PACF for the logarithmic change in the soybeans meal series", na.action = na.omit) # T/4 - lag max
+
+## Soybeans Meal - Augmented Dickey-Fuller Test for unit root 
+summary(ur.df(y = na.omit(log(data$sb_meal) - log(stats::lag(data$sb_meal, 1))), type =  "none", selectlags = "AIC"))
+summary(ur.df(y = na.omit(log(data$sb_meal) - log(stats::lag(data$sb_meal, 1))), type =  "drift", selectlags = "AIC"))
+summary(ur.df(y = na.omit(log(data$sb_meal) - log(stats::lag(data$sb_meal, 1))), type =  "trend", selectlags = "AIC"))
+
+## Soybeans Meal - Phillips-Perron test for unit root 
+summary(ur.pp(x = na.omit(log(data$sb_meal) - log(stats::lag(data$sb_meal, 1))), type = "Z-tau", model = "constant"))
+summary(ur.pp(x = na.omit(log(data$sb_meal) - log(stats::lag(data$sb_meal, 1))), type = "Z-tau", model = "trend"))
+
+
+
+## Corn - ACF and PACF
+Acf(x = log(data$corn) - log(stats::lag(data$corn, 1)), lag.max = 69, type = 'correlation', plot = TRUE, main = "ACF for the logarithmic change in the Corn series", na.action = na.omit)
+Pacf(x = log(data$corn) - log(stats::lag(data$corn, 1)), lag.max = 69, plot = TRUE, main = "PACF for the logarithmic change in the Corn series", na.action = na.omit) # T/4 - lag max
+
+## Corn - Augmented Dickey-Fuller Test for unit root 
+summary(ur.df(y = na.omit(log(data$corn) - log(stats::lag(data$corn, 1))), type =  "none", selectlags = "AIC"))
+summary(ur.df(y = na.omit(log(data$corn) - log(stats::lag(data$corn, 1))), type =  "drift", selectlags = "AIC"))
+summary(ur.df(y = na.omit(log(data$corn) - log(stats::lag(data$corn, 1))), type =  "trend", selectlags = "AIC"))
+
+## Corn - Phillips-Perron test for unit root 
+summary(ur.pp(x = na.omit(log(data$corn) - log(stats::lag(data$corn, 1))), type = "Z-tau", model = "constant"))
+summary(ur.pp(x = na.omit(log(data$corn) - log(stats::lag(data$corn, 1))), type = "Z-tau", model = "trend"))
+
+```
+
+Even with a first transformation in the data, we continue having non stationary data. The next step indicated by the specific literature is add the seasonal component during the logarithmic transformation. In this way we set the argument lag equal to twelve to consider the seasonality for each twelve period. 
+
+
+```{r seasonal part tests}
+#### Differencing the seasonal part from the series #####
+
+## Soybeans - ACF and PACF
+Acf(x = diff(log(data$sb) - log(stats::lag(data$sb, 1)), lag = 12, differences = 1), lag.max = 69, main = "ACF for the logarithmic change in the USA TFP", type = 'correlation', plot = TRUE, na.action = na.omit)
+Pacf(x = diff(log(data$sb) - log(stats::lag(data$sb, 1)), lag = 12, differences = 1), lag.max = 69, plot = TRUE,main = "PACF for the logarithmic change in the USA TFP", na.action = na.omit) # T/4 - lag max
+
+## Soybeans - Augmented Dickey-Fuller Test for unit root 
+summary(ur.df(y = na.omit(diff(log(data$sb) - log(stats::lag(data$sb, 1)), lag = 12, differences = 1)), type =  "none", selectlags = "AIC"))
+summary(ur.df(y = na.omit(diff(log(data$sb) - log(stats::lag(data$sb, 1)), lag = 12, differences = 1)), type =  "drift", selectlags = "AIC"))
+summary(ur.df(y = na.omit(diff(log(data$sb) - log(stats::lag(data$sb, 1)), lag = 12, differences = 1)), type =  "trend", selectlags = "AIC"))
+
+## Soybeans - Phillips-Perron test for unit root 
+summary(ur.pp(x = na.omit(diff(log(data$sb) - log(stats::lag(data$sb, 1)), lag = 12, differences = 1)), type = "Z-tau", model = "constant"))
+summary(ur.pp(x = na.omit(diff(log(data$sb) - log(stats::lag(data$sb, 1)), lag = 12, differences = 1)), type = "Z-tau", model = "trend"))
+
+
+## Soybeans Meal - ACF and PACF
+Acf(x = diff(log(data$sb_meal) - log(stats::lag(data$sb_meal, 1)), lag = 12, differences = 1), main = "ACF for the logarithmic change in the soybeans meal series", lag.max = 69, type = 'correlation', plot = TRUE, na.action = na.omit)
+Pacf(x = diff(log(data$sb_meal) - log(stats::lag(data$sb_meal, 1)), lag = 12, differences = 1), lag.max = 69, plot = TRUE,main = "PACF for the logarithmic change in the soybeans meal series", na.action = na.omit) # T/4 - lag max
+
+## Soybeans Meal - Augmented Dickey-Fuller Test for unit root 
+summary(ur.df(y = na.omit(diff(log(data$sb_meal) - log(stats::lag(data$sb_meal, 1)), lag = 12, differences = 1)), type =  "none", selectlags = "AIC"))
+summary(ur.df(y = na.omit(diff(log(data$sb_meal) - log(stats::lag(data$sb_meal, 1)), lag = 12, differences = 1)), type =  "drift", selectlags = "AIC"))
+summary(ur.df(y = na.omit(diff(log(data$sb_meal) - log(stats::lag(data$sb_meal, 1)), lag = 12, differences = 1)), type =  "trend", selectlags = "AIC"))
+
+## Soybeans Meal - Phillips-Perron test for unit root 
+summary(ur.pp(x = na.omit(diff(log(data$sb_meal) - log(stats::lag(data$sb_meal, 1)), lag = 12, differences = 1)), type = "Z-tau", model = "constant"))
+summary(ur.pp(x = na.omit(diff(log(data$sb_meal) - log(stats::lag(data$sb_meal, 1)), lag = 12, differences = 1)), type = "Z-tau", model = "trend"))
+
+
+
+## Corn - ACF and PACF
+Acf(x = diff(log(data$corn) - log(stats::lag(data$corn, 1)), lag = 12, differences = 1), lag.max = 69, type = 'correlation', plot = TRUE, main = "ACF for the logarithmic change in the Corn series", na.action = na.omit)
+Pacf(x = diff(log(data$corn) - log(stats::lag(data$corn, 1)), lag = 12, differences = 1), lag.max = 69, plot = TRUE, main = "PACF for the logarithmic change in the Corn series", na.action = na.omit) # T/4 - lag max
+
+## Corn - Augmented Dickey-Fuller Test for unit root 
+summary(ur.df(y = na.omit(diff(log(data$corn) - log(stats::lag(data$corn, 1)), lag = 12, differences = 1)), type =  "none", selectlags = "AIC"))
+summary(ur.df(y = na.omit(diff(log(data$corn) - log(stats::lag(data$corn, 1)), lag = 12, differences = 1)), type =  "drift", selectlags = "AIC"))
+summary(ur.df(y = na.omit(diff(log(data$corn) - log(stats::lag(data$corn, 1)), lag = 12, differences = 1)), type =  "trend", selectlags = "AIC"))
+
+## Corn - Phillips-Perron test for unit root 
+summary(ur.pp(x = na.omit(diff(log(data$corn) - log(stats::lag(data$corn, 1)), lag = 12, differences = 1)), type = "Z-tau", model = "constant"))
+summary(ur.pp(x = na.omit(diff(log(data$corn) - log(stats::lag(data$corn, 1)), lag = 12, differences = 1)), type = "Z-tau", model = "trend"))
+
+
+```
+After that all the values of the test-statistics indicate a stationary series. We should notice the persistence of some values of autocorrelation in a range of specific lags, but they are not going to have so much influence in our analysis considering that they are low values.
+
+The econometric model that considers seasonality in the modelling process is called Seasonal Autoregressive Integrated Moving Average (SARIMA for short). Before use it first we need to make a seasonal adjustment in those series to have more stable results. For this task we'll use tha X13-ARIMA package that will be adjust the series and indicate the best specification for each one of them.
+
+```{r Modelling identification, results = 'hide', message=FALSE}
+## Seasonal adjustment
+sb = ts(data$sb, start = c(1997,1), end = c(2019,12), 12)
+sbm = ts(data$sb_meal, start = c(1997,1), end = c(2019,12), 12)
+corn = ts(data$corn, start = c(1997,1), end = c(2019,12), 12)
+
+# Seasonal adjustment for Soybeans
+adjust = seas(sb)
+summary(adjust)
+qs(adjust)
+
+sb = final(adjust)
+
+# Seasonal adjustment for Soybeans Meal
+adjust = seas(sbm)
+summary(adjust)
+qs(adjust)
+
+sbm = final(adjust)
+
+# Seasonal adjustment for Corn
+adjust = seas(corn)
+summary(adjust)
+qs(adjust)
+
+corn = final(adjust)
+
+```
+
+The specifications of each model are presented in the object 'adjust' for each product. They also are presented below where we'll model the path of the series. 
+
+```{r}
+# Model specifications
+
+sbARMA = arima(sb/1000, order=c(2,1,2), seasonal=list(order=c(2,0,2)))
+sbm_ARMA = arima(sbm/1000, order=c(1,0,0))
+cornARMA = arima(corn/1000, order=c(1,1,1),seasonal=list(order=c(1,0,1)))
+
+
+```
+
+Now as we have the results from each model we need to procedure the analysis making diagnostic tests for them. 
+
+```{r MODELLING - diagnostics}
+#### Soybeans - Model Diagnostic ####
+
+# Residual Autocorrelation Test
+Box.test(x = sbARMA$residuals, lag = 20, type = "Ljung-Box", fitdf = 5)
+# HO: No autocorrelation; H1: There's autocorrelation 
+Acf(sbARMA$residuals,lag.max = 20,type = "correlation",plot = TRUE, na.action = na.omit, main = "Residual autocorrelation from the Brazil's soybeans exports")
+Pacf(x = sbARMA$residuals,lag.max = 20,plot = TRUE)
+
+# Variance Stationarity Test 
+ArchTest(x = sbARMA$residuals^2, lags = 20)
+# HO: No ARCH effects; H1: There's ARCH effect
+
+# Residual Normality Test
+jb.norm.test(na.omit(sbARMA$residuals), nrepl = 1000)
+# HO: Normality; H1: No normality
+
+```
+
+
+
+```{r}
+#### Soybeans Meal - Model Diagnostic ####
+
+# Residual Autocorrelation Test
+Box.test(x = sbm_ARMA$residuals, lag = 20, type = "Ljung-Box", fitdf = 5)
+# HO: No autocorrelation; H1: There's autocorrelation 
+Acf(sbm_ARMA$residuals,lag.max = 12,type = "correlation",plot = TRUE, na.action = na.omit, main = "Residual autocorrelation from the Brazil's soybeans meal exports")
+Pacf(x = sbm_ARMA$residuals,lag.max = 20,plot = TRUE)
+
+# Variance Stationarity Test 
+ArchTest(x = sbm_ARMA$residuals^2, lags = 20)
+# HO: No ARCH effects; H1: There's ARCH effect
+
+# Residual Normality Test
+jb.norm.test(na.omit(sbm_ARMA$residuals), nrepl = 1000)
+# HO: Normality; H1: No normality
+
+```
+
+
+```{r}
+#### Corn - Model Diagnostic ####
+
+# Residual Autocorrelation Test
+Box.test(x = cornARMA$residuals, lag = 20, type = "Ljung-Box", fitdf = 5)
+# HO: No autocorrelation; H1: There's autocorrelation 
+Acf(cornARMA$residuals,lag.max = 20,type = "correlation",plot = TRUE, na.action = na.omit, main = "Residual autocorrelation from the Brazil's corn exports")
+Pacf(x = cornARMA$residuals,lag.max = 20,plot = TRUE)
+
+# Variance Stationarity Test 
+ArchTest(x =cornARMA$residuals^2, lags = 20)
+# HO: No ARCH effects; H1: There's ARCH effect
+
+# Residual Normality Test
+jb.norm.test(na.omit(cornARMA$residuals), nrepl = 1000)
+# HO: Normality; H1: No normality
+
+```
+
+There's no presence of autocorrelation nor ARCH effects in our models indicating their stability and the confiability to use the models to make predictions.   
+
+```{r modellling - predictions}
+# Model Predictions
+plot(forecast::forecast(sbARMA, h = 132, level = 0.95), main = "Forecasts of Brazil's soybeans exports")
+
+plot(forecast::forecast(sbm_ARMA, h = 132, level = 0.95), main = "Forecasts of Brazil's soybeans meal exports")
+
+plot(forecast::forecast(cornARMA, h = 132, level = 0.95), main = "Forecasts of Brazil's corn exports")
+
+summary(forecast::forecast(sbARMA, h = 132, level = 0.95))
+summary(forecast::forecast(sbm_ARMA, h = 132, level = 0.95))
+summary(forecast::forecast(cornARMA, h = 132, level = 0.95))
+
+
+rm(adjust, corn, cornARMA, data, sb, sbARMA, sbm, sbm_ARMA)
+```
+
+The predictions were made using 132 steps ahead (11 years). The seasonal component seems to be captured by the models in each of the predictions. But bear in mind that the predictions from the ARMA class models are made based on until one lag. The next predictions are based on in the previous one and tends to the mean value. Moreover the predictions present low values for the RMSE, MAE, MPE, MAPE and MASE measures in terms of the tons scales for each series.
+
+
+VAR MODELS 
+
+To improve our analysis and predictions we'll use another class of time series modelling: Vector Autoregression (VAR for short). 
+
+We are going to select the covariates with respect to all the exports series. As we can see in the previous steps, some of these variables were confirmed by analysis of main products exported by Brazil and main traders partners (countries and states) of our country. The procedure will be the same for each one of the exports series. 
+
+First - We will split the main data set in subsets for soybeans, soybeans meal and corn exports and define their main covariates according to the previous results from our study. We also found out the main trader partners of Brazil in terms of soybeans exports (China, Spain, Thailand, Netherlands) and soybean meal exports (Netherlands, Thailand, South Korea, France). The modelling process consider the data in a monthly frequency.
+
+Second - The construction of the model is based on in a optimal lag selection and it establishes the possible relations between each one of the series inputted into the model. The correspond tests (normality, arch effects and presence of autocorrelation) for confirm the stability of the model is also presented bellow. 
+
+Thrid - In this phase we calculate the Impulse Response Function (IRF for short) for each series in each model to measure the response of a specific variable given a shock in other variable related with the first one. We also calculate the Granger Causality that presents the null hypothesis whether one time series is useful in forecasting another. Then we make the predictions for each series.  
+
+
+```{r var data pre processing, results = 'hide'}
+##### VAR MODEL - DATA PRE PROCESSING #####
+
+library(openxlsx)
+
+# file reading
+covariates = read.xlsx("covariates.xlsx")
+
+# Annual observations from 1997 to 2019
+covariates = covariates[19:41,]
+
+# Only exports
+data = df
+data = data[which(data$type=="Export"),]
+
+# Separate the products
+sb = data[which(data$product=="soybeans"),]
+sb_meal = data[which(data$product=="soybean_meal"),]
+corn = data[which(data$product=="corn"),]
+
+# Tons by month 
+sb = tapply(sb$tons, sb$date, FUN = sum)
+sb_meal = tapply(sb_meal$tons, sb_meal$date, FUN = sum)
+corn = tapply(corn$tons, corn$date, FUN = sum)
+
+# Convert to time series object 
+sb = ts(sb, start = c(1997,1), end = c(2019,12), frequency = 12)
+sb_meal = ts(sb_meal, start = c(1997,1), end = c(2019,12), frequency = 12)
+corn = ts(corn, start = c(1997,1), end = c(2019,12), frequency = 12)
+
+### Seasonal Adjustment
+
+# Seasonal adjustment for Corn
+adjust = seas(corn)
+adjust
+qs(adjust)
+
+corn = final(adjust)
+
+# Seasonal adjustment for Soybeans meal
+adjust = seas(sb_meal)
+adjust
+qs(adjust)
+
+sb_meal = final(adjust)
+
+# Seasonal adjustment for Soybeans
+adjust = seas(sb)
+adjust
+qs(adjust)
+
+sb = final(adjust)
+
+# Convert to a xts data frame
+DtEx = seq(as.Date("1997-01-01"), as.Date("2019-12-01"), by = "month")
+data = data.frame(DtEx, sb, sb_meal, corn)
+data = xts(data[,-1], order.by = data[,1])
+
+# Corn annual observations exports 
+corn = data$corn
+corn = as.numeric(corn)
+corn = rollapply(corn, width = 12, by = 12, align = "lef", FUN = "sum")
+corn = ts(corn, start = c(1997,12), end = c(2019,12), frequency = 1)
+
+# Soybeans annual observations exports 
+sb = data$sb
+sb = as.numeric(sb)
+sb = rollapply(sb, width = 12, by = 12, align = "lef", FUN = "sum")
+sb = ts(sb, start = c(1997,12), end = c(2019,12), frequency = 1)
+
+# Soybeans annual observations exports 
+sbm = data$sb_meal
+sbm = as.numeric(sbm)
+sbm = rollapply(sbm, width = 12, by = 12, align = "lef", FUN = "sum")
+sbm = ts(sbm, start = c(1997,12), end = c(2019,12), frequency = 1)
+
+
+# Covariates to ts
+price_corn = ts(covariates$price_corn,start = c(1997,12), end = c(2019,12), frequency = 1) 
+price_sb = ts(covariates$price_soybeans,start = c(1997,12), end = c(2019,12), frequency = 1) 
+price_sbm = ts(covariates$price_soybean_meal,start = c(1997,12), end = c(2019,12), frequency = 1)
+gdp_nether = ts(covariates$gpd_netherlands,start = c(1997,12), end = c(2019,12), frequency = 1)
+gdp_thail = ts(covariates$gdp_thailand,start = c(1997,12), end = c(2019,12), frequency = 1)
+gdp_iran = ts(covariates$gdp_iran, start = c(1997,12), end = c(2019,12), frequency = 1)
+gdp_spain = ts(covariates$gdp_spain, start = c(1997,12), end = c(2019,12), frequency = 1)
+gdp_world = ts(covariates$gdp_world, start = c(1997,12), end = c(2019,12), frequency = 1)
+gdp_vietnam = ts(covariates$gdp_vietnam, start = c(1997,12), end = c(2019,12), frequency = 1)
+gdp_japan = ts(covariates$gdp_japan, start = c(1997,12), end = c(2019,12), frequency = 1)
+gdp_egypt = ts(covariates$gdp_egypt, start = c(1997,12), end = c(2019,12), frequency = 1)
+gdp_china = ts(covariates$gdp_china, start = c(1997,12), end = c(2019,12), frequency = 1)
+
+# Main partners Soybeans and Soybeans meal
+
+# Last 3 years
+data = df
+data$date <- as.Date(data$date, format= "%Y-%m-%d")
+
+data = subset(data, date>= "2017-01-01" & date <= "2019-12-01")
+
+# Only exports
+data = data[which(data$type=="Export"),]
+
+# Corn and sugar
+sb1 = data[which(data$product=="soybeans"),]
+sb_meal = data[which(data$product=="soybean_meal"),]
+
+## Main brazilian trade partners of the previous two products
+
+
+# Soybeans partners
+sb_partners = tapply(sb1$tons, sb1$country, FUN = sum)
+sb_partners = sort(sb_partners, decreasing = TRUE)
+country = row.names(sb_partners)
+sb_partners = cbind(country, sb_partners)
+sb_partners = as.data.frame(sb_partners)
+colnames(sb_partners) = c("Country", "Tons")
+
+# SBM partners
+sbm_partners = tapply(sb_meal$tons, sb_meal$country, FUN = sum)
+sbm_partners = sort(sbm_partners, decreasing = TRUE)
+country = row.names(sbm_partners)
+sbm_partners = cbind(country, sbm_partners)
+sbm_partners = as.data.frame(sbm_partners)
+colnames(sbm_partners) = c("Country", "Tons")
+
+# Soybeans: China, Spain, Thailand, Netherlands
+# Soybean Meal: Netherlands, Thailand, South Korea, France
+
+rm(adjust, country, covariates, DtEx, sb1, sb_meal, sb_partners, sbm_partners)
+
+```
+
+
+
+```{r}
+#### CORN - VAR MODEL #####
+
+# Bind the variables
+vars = cbind(corn/1000, price_corn, gdp_japan, gdp_egypt)
+
+# Rename the created data set
+colnames(vars) = c("Corn", "Price Corn", "GDP Japan", "GDP Egypt") 
+
+# Building the optimal lags
+lagselect = VARselect(vars, lag.max = 20, type = "both")
+lagselect$selection # One lag
+
+# Model
+ModelVAR_Corn = VAR(vars, p = 1, type = "both", season = NULL, exogen = NULL)
+summary(ModelVAR_Corn) 
+
+## Diagnostics 
+serial.test(ModelVAR_Corn, lags.pt = 12, type = "PT.asymptotic")
+
+# Heterocedasticity
+arch.test(ModelVAR_Corn, lags.multi = 10, multivariate.only = TRUE)
+
+# Normality Distribution of residuals
+normality.test(ModelVAR_Corn, multivariate.only = TRUE)
+
+# Testing for structural breaks in the residuals
+stab = stability(ModelVAR_Corn, type = "OLS-CUSUM")
+plot(stab)
+
+# Granger causality
+causality(ModelVAR_Corn, cause = "Corn")
+causality(ModelVAR_Corn, cause = "Price.Corn")
+causality(ModelVAR_Corn, cause = "GDP.Japan")
+causality(ModelVAR_Corn, cause = "GDP.Egypt")
+
+
+# Impulse response function
+pricecorn_IRF = irf(ModelVAR_Corn, impulse = "Price.Corn", response = "Corn", n.ahead = 20, boot = TRUE)
+plot(pricecorn_IRF, ylab = "Corn in Tons", main = "Shock from Price Corn")
+
+
+GDPJapan_IRF = irf(ModelVAR_Corn, impulse = "GDP.Japan", response = "Corn", n.ahead = 20, boot = TRUE)
+plot(GDPJapan_IRF, ylab = "Corn in Tons", main = "Shock from GDP Japan")
+
+GDPEgypt_IRF = irf(ModelVAR_Corn, impulse = "GDP.Egypt", response = "Corn", n.ahead = 20, boot = TRUE)
+plot(GDPEgypt_IRF, ylab = "Corn in Tons", main = "Shock from GDP Egypt")
+
+
+
+# Variance decomposition - How much these variables are influenced by shocks
+FEVD1 = fevd(ModelVAR_Corn, n.ahead = 12)
+par(mar = rep(2, 4))
+plot(FEVD1)
+
+# Var forecasting
+pred_VAR = predict(ModelVAR_Corn, n.ahead = 30, ci = 0.95)
+fanchart(pred_VAR, names = "Corn")
+
+```
+For the Corn VAR Model we can notice the stability through the non rejection of the null hypothesis from the tests of serial autocorrelation, heterocedasticity and normality distribution of the residuals. We also note that there's no structural breaks in the residuals. 
+
+The are a bunch of interest results: 
+
+The Volume of corn tons does not granger-cause the other variables in the model (the corn price and the GDP for the main partners concerns to the product from the Brazil) while the corn price is the main responsible for the changes in the volume of corn tons exported by Brazil, followed by the GDP of Japan. We can notice a great impact from the demand on the decisions of the level of brazilian corn exports mainly with respect to japanese demand for the product. Moreover the predictions seems to be stable and are within the confidence interval established.
+
+
+
+```{r}
+#### Soybeans - VAR MODEL #####
+
+# Bind the variables
+vars = cbind(sb/1000, price_sb, gdp_china, gdp_spain)
+
+# Rename the created data set
+colnames(vars) = c("Soybeans",  "Price_Soybeans","GDP_China", "GDP_Spain") 
+
+# Building the optimal lags
+lagselect = VARselect(vars, lag.max = 20, type = "both")
+lagselect$selection # One lag
+
+# Model
+ModelVAR_sb = VAR(vars, p = 1, type = "both", season = NULL, exogen = NULL)
+summary(ModelVAR_sb) 
+
+## Diagnostics 
+serial.test(ModelVAR_sb, lags.pt = 12, type = "PT.asymptotic")
+
+# Heterocedasticity
+arch.test(ModelVAR_sb, lags.multi = 11, multivariate.only = TRUE)
+
+# Normality Distribution of residuals
+normality.test(ModelVAR_sb, multivariate.only = TRUE)
+
+# Testing for structural breaks in the residuals
+stab = stability(ModelVAR_sb, type = "OLS-CUSUM")
+plot(stab)
+
+# Granger causality
+causality(ModelVAR_sb, cause = "Soybeans")
+causality(ModelVAR_sb, cause = "Price_Soybeans")
+causality(ModelVAR_sb, cause = "GDP_China")
+causality(ModelVAR_sb, cause = "GDP_Spain")
+
+
+# Impulse response function
+pricesb_IRF = irf(ModelVAR_sb, impulse = "Price_Soybeans", response = "Soybeans", n.ahead = 20, boot = TRUE)
+plot(pricesb_IRF, ylab = "Soybeans in Tons", main = "Shock from Price Soybeans")
+
+GDPChina_IRF = irf(ModelVAR_sb, impulse = "GDP_China", response = "Soybeans", n.ahead = 20, boot = TRUE)
+plot(GDPChina_IRF, ylab = "Soybeans in Tons", main = "Shock from GDP China")
+
+GDPSpain_IRF = irf(ModelVAR_sb, impulse = "GDP_Spain", response = "Soybeans", n.ahead = 20, boot = TRUE)
+plot(GDPSpain_IRF, ylab = "Soybeans in Tons", main = "Shock from GDP Spain")
+
+# Variance decomposition - How much these variables are influenced by shocks
+FEVD1 = fevd(ModelVAR_sb, n.ahead = 12)
+par(mar = rep(2, 4))
+plot(FEVD1)
+
+# Var forecasting
+pred_VAR = predict(ModelVAR_sb, n.ahead = 30, ci = 0.95)
+fanchart(pred_VAR, names = "Soybeans")
+
+```
+As we can see our soybeans VAR model passes on the diagnostics tests. Notice that one more time the price of the product affects the other series based on a very low value of the p-value as well as the GDP of China has a greater impact on the other series which is a big trader partner of Brazil.
+
+The predictions are stable and also were made for eleven years.
+
+
+
+```{r}
+#### Soybeans Meal - VAR MODEL #####
+
+# Bind the variables
+vars = cbind(sbm/1000, price_sbm, gdp_nether, gdp_thail)
+
+# Rename the created data set
+colnames(vars) = c("Soybeans_Meal",  "Price_Soybeans_Meal","GDP_Netherlands", "GDP_Thailand") 
+
+# Building the optimal lags
+lagselect = VARselect(vars, lag.max = 20, type = "both")
+lagselect$selection # One lag
+
+# Model
+ModelVAR_sbm = VAR(vars, p = 1, type = "both", season = NULL, exogen = NULL)
+summary(ModelVAR_sbm) 
+
+## Diagnostics 
+serial.test(ModelVAR_sbm, lags.pt = 12, type = "PT.asymptotic")
+
+# Heterocedasticity
+arch.test(ModelVAR_sbm, lags.multi = 11, multivariate.only = TRUE)
+
+# Normality Distribution of residuals
+normality.test(ModelVAR_sbm, multivariate.only = TRUE)
+
+# Testing for structural breaks in the residuals
+stab = stability(ModelVAR_sbm, type = "OLS-CUSUM")
+plot(stab)
+
+# Granger causality
+causality(ModelVAR_sbm, cause = "Soybeans_Meal")
+causality(ModelVAR_sbm, cause = "Price_Soybeans_Meal")
+causality(ModelVAR_sbm, cause = "GDP_Netherlands")
+causality(ModelVAR_sbm, cause = "GDP_Thailand")
+
+
+# Impulse response function
+pricesbm_IRF = irf(ModelVAR_sbm, impulse = "Price_Soybeans_Meal", response = "Soybeans_Meal", n.ahead = 20, boot = TRUE)
+plot(pricesbm_IRF, ylab = "Soybeans Meal in Tons", main = "Shock from Price Soybeans Meal")
+
+GDPNetherlands_IRF = irf(ModelVAR_sbm, impulse = "GDP_Netherlands", response = "Soybeans_Meal", n.ahead = 20, boot = TRUE)
+plot(GDPNetherlands_IRF, ylab = "Soybeans Meal in Tons", main = "Shock from GDP China")
+
+GDPThailand_IRF = irf(ModelVAR_sbm, impulse = "GDP_Thailand", response = "Soybeans_Meal", n.ahead = 20, boot = TRUE)
+plot(GDPThailand_IRF, ylab = "Soybeans Meal in Tons", main = "Shock from GDP Thailand")
+
+
+# Variance decomposition - How much these variables are influenced by shocks
+FEVD1 = fevd(ModelVAR_sbm, n.ahead = 12)
+par(mar = rep(2, 4))
+plot(FEVD1)
+
+# Var forecasting
+pred_VAR = predict(ModelVAR_sbm, n.ahead = 30, ci = 0.95)
+fanchart(pred_VAR, names = "Soybeans_Meal")
+
+
+```
+
+For the Soybeans meal VAR Model we also have a model without serial autocorrelation, arch effects and normality on the residuals. We can notice that just the GDP of Thailand has the power to affect the other series. The predictions seem to be stable using a 132 steps ahead. 
+
+
